@@ -14,25 +14,39 @@ _redis_client: Optional[Redis] = None
 def _get_redis_client() -> Redis:
     """
     Create and return a Redis client.
-    Raises RuntimeError if required environment variables are missing.
+    For local development, uses REDIS_URL (default: redis://localhost:6379)
+    For Redis Cloud, uses REDIS_HOST, REDIS_PORT, and REDIS_PASSWORD
     """
     global _redis_client
     if _redis_client is not None:
         return _redis_client
 
-    # Check for Redis Cloud configuration first, then default
-    redis_host = os.environ.get("REDIS_HOST", "redis-12045.crce185.ap-seast-1-1.ec2.redns.redis-cloud.com")
-    redis_port = os.environ.get("REDIS_PORT", "12045")
-    redis_password = os.environ.get("REDIS_PASSWORD", "")
+    # Check if we're using Redis Cloud configuration
+    redis_host = os.environ.get("REDIS_HOST")
+    redis_port = os.environ.get("REDIS_PORT")
+    redis_password = os.environ.get("REDIS_PASSWORD")
     
-    # If REDIS_URL is set, use it (for Render deployment)
-    redis_url = os.environ.get("REDIS_URL", f"redis://:{redis_password}@{redis_host}:{redis_port}")
+    # If all Redis Cloud variables are present, use them
+    if redis_host and redis_port:
+        if redis_password:
+            # Use password if provided
+            redis_url = f"rediss://:{redis_password}@{redis_host}:{redis_port}"
+        else:
+            # Connect without password
+            redis_url = f"rediss://{redis_host}:{redis_port}"
+    else:
+        # Fallback to REDIS_URL (for local development)
+        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
     
-    if redis_password and f"://" in redis_url and not "@@" in redis_url:
-        # If we have a password but it's not in the URL, create the URL with password
-        redis_url = f"redis://:{redis_password}@{redis_host}:{redis_port}"
-    
-    _redis_client = Redis.from_url(redis_url, decode_responses=True, health_check_interval=30)
+    # Create the Redis client with the determined URL
+    _redis_client = Redis.from_url(
+        redis_url, 
+        decode_responses=True, 
+        health_check_interval=30,
+        socket_connect_timeout=5,
+        socket_timeout=5,
+        retry_on_timeout=True
+    )
     return _redis_client
 
 
