@@ -94,11 +94,36 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 ### For Local Development
 - Option 1: Use Redis Docker container (recommended)
+  ```bash
+  docker run --name redis-local -p 6379:6379 -d redis:alpine
+  ```
 - Option 2: Install Redis locally
 - Option 3: Use a Redis cloud service
 
-### For Render Deployment
-Redis will be automatically configured via the `render.yaml` file.
+### For Render Deployment with Redis Cloud
+Since you're using Redis Cloud instead of Render's Redis add-on, configure as follows:
+
+1. **Get Redis Cloud Connection Details**:
+   - Host: `redis-12045.crce185.ap-seast-1-1.ec2.redns.redis-cloud.com`
+   - Port: `12045`
+   - You'll need your Redis Cloud password
+
+2. **Update Environment Variables on Render Dashboard**:
+   - In Web Service settings, add:
+     - `REDIS_HOST`: `redis-12045.crce185.ap-seast-1-1.ec2.redns.redis-cloud.com`
+     - `REDIS_PORT`: `12045`
+     - `REDIS_PASSWORD`: Your Redis Cloud password
+   - In Worker Service settings, add the same variables
+
+3. **Update render.yaml**:
+   - The `render.yaml` no longer includes the Redis add-on service
+   - Instead, it uses connection parameters via environment variables
+   - The Redis client will connect to your Redis Cloud instance
+
+4. **Security Considerations**:
+   - Store the Redis password securely in Render's environment variables
+   - Do not commit Redis credentials to the repository
+   - The Redis client uses SSL by default for secure connections
 
 ## LLM API Configuration
 

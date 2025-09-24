@@ -13,10 +13,12 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11
-      - key: REDIS_URL
-        fromService:
-          name: news-crawler-redis
-          property: connectionString
+      - key: REDIS_HOST
+        sync: false  # You'll set this in the Render dashboard
+      - key: REDIS_PORT
+        sync: false  # You'll set this in the Render dashboard
+      - key: REDIS_PASSWORD
+        sync: false  # You'll set this in the Render dashboard
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_KEY
@@ -33,10 +35,6 @@ services:
         value: 3600
       - key: RENDER
         value: true
-
-  - type: redis
-    name: news-crawler-redis
-    region: frankfurt
 
   - type: worker
     name: news-summarizer-worker
@@ -52,10 +50,12 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11
-      - key: REDIS_URL
-        fromService:
-          name: news-crawler-redis
-          property: connectionString
+      - key: REDIS_HOST
+        sync: false  # You'll set this in the Render dashboard
+      - key: REDIS_PORT
+        sync: false  # You'll set this in the Render dashboard
+      - key: REDIS_PASSWORD
+        sync: false  # You'll set this in the Render dashboard
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_KEY
@@ -72,6 +72,9 @@ services:
         value: 3600
       - key: RENDER
         value: true
+
+# Note: We're not using Render's Redis add-on, instead using Redis Cloud
+# The connection details will be configured via environment variables
 
 cron-jobs:
   - name: crawl-scheduler

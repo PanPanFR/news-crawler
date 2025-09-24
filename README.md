@@ -206,9 +206,9 @@ python -m app.scheduler cleanup --days 30 --by-publish
 
 ## 🌐 Deployment
 
-### Render Deployment
+### Render Deployment with Redis Cloud
 
-The system is optimized for deployment on Render with three services:
+The system is optimized for deployment on Render with two services (using external Redis Cloud):
 
 1. **Web Service Configuration**:
    - Service type: Web Service
@@ -225,11 +225,7 @@ The system is optimized for deployment on Render with three services:
      uvicorn app.main:app --host 0.0.0.0 --port $PORT
      ```
 
-2. **Redis Add-on**:
-   - Required for priority queue management
-   - Automatically configured via `render.yaml`
-
-3. **Background Worker**:
+2. **Background Worker**:
    - Service type: Worker
    - Runtime: Python
    - Same build command as Web Service
@@ -239,10 +235,18 @@ The system is optimized for deployment on Render with three services:
      python -m app.workers.summarizer_worker
      ```
 
+3. **Redis Cloud Configuration** (instead of Render's Redis add-on):
+   - Host: `redis-12045.crce185.ap-seast-1-1.ec2.redns.redis-cloud.com`
+   - Port: `12045`
+   - Password: Your Redis Cloud password
+   - This configuration is used instead of Render's Redis Add-on
+
 4. **Environment Variables**:
    - `SUPABASE_URL`: Your Supabase project URL
    - `SUPABASE_KEY`: Your Supabase anon key
-   - `REDIS_URL`: Automatically configured via service connection
+   - `REDIS_HOST`: Your Redis Cloud host (e.g., redis-12045.crce185.ap-seast-1-1.ec2.redns.redis-cloud.com)
+   - `REDIS_PORT`: Your Redis Cloud port (e.g., 12045)
+   - `REDIS_PASSWORD`: Your Redis Cloud password
    - `LLM_API_KEY`: Your Groq API key
    - `LLM_SERVICE`: Set to 'groq' (default)
    - `LLM_RATE_LIMIT_DELAY`: Delay between API requests (default: 2.0 seconds)

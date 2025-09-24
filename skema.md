@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS public.news (
   category TEXT NULL,
   publish_date TIMESTAMPTZ NULL,
   crawl_date TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  content_hash TEXT NULL
+  content_hash TEXT NULL,
+  document_tsv TSVECTOR NULL
 );
 
 -- URL harus unik untuk mencegah duplikasi
@@ -60,16 +61,40 @@ CREATE INDEX IF NOT EXISTS idx_news_title_trgm
 CREATE INDEX IF NOT EXISTS idx_news_summary_trgm
   ON public.news USING GIN (summary gin_trgm_ops);
 
+-- Index untuk full-text search
+CREATE INDEX IF NOT EXISTS idx_news_document_tsv ON public.news USING GIN (document_tsv);
 
-## 4) Contoh Query Umum
 
--- 4.1. Ambil daftar berita terbaru (prioritaskan publish_date, lalu crawl_date)
+## 4) Full-text Search Trigger
+
+-- Fungsi trigger untuk update dokument_tsv
+CREATE OR REPLACE FUNCTION news_tsv_trigger() RETURNS trigger AS $
+begin
+  new.document_tsv :=
+     setweight(to_tsvector('english', coalesce(new.title, '')), 'A') ||
+     setweight(to_tsvector('english', coalesce(new.summary, '')), 'B') ||
+     setweight(to_tsvector('english', coalesce(new.source, '')), 'C');
+  return new;
+end
+$ LANGUAGE plpgsql;
+
+-- Trigger untuk update document_tsv secara otomatis
+CREATE TRIGGER tsvectorupdate
+    BEFORE INSERT OR UPDATE
+    ON public.news
+    FOR EACH ROW
+    EXECUTE FUNCTION news_tsv_trigger();
+
+
+## 5) Contoh Query Umum
+
+-- 5.1. Ambil daftar berita terbaru (prioritaskan publish_date, lalu crawl_date)
 SELECT id, title, url, summary, source, category, publish_date, crawl_date, content_hash
 FROM public.news
 ORDER BY publish_date DESC NULLS LAST, crawl_date DESC
 LIMIT 20 OFFSET 0;
 
--- 4.2. Filter berdasarkan source dan category
+-- 5.2. Filter berdasarkan source dan category
 SELECT id, title, url, summary, source, category, publish_date, crawl_date, content_hash
 FROM public.news
 WHERE LOWER(source) = LOWER('kompas.com')
@@ -77,7 +102,7 @@ WHERE LOWER(source) = LOWER('kompas.com')
 ORDER BY publish_date DESC NULLS LAST, crawl_date DESC
 LIMIT 20 OFFSET 0;
 
--- 4.3. Pencarian teks pada title/summary (ILIKE)
+-- 5.3. Pencarian teks pada title/summary (ILIKE)
 SELECT id, title, url, summary, source, category, publish_date, crawl_date, content_hash
 FROM public.news
 WHERE title ILIKE '%ekonomi%'
@@ -85,14 +110,21 @@ WHERE title ILIKE '%ekonomi%'
 ORDER BY publish_date DESC NULLS LAST, crawl_date DESC
 LIMIT 20 OFFSET 0;
 
--- 4.4. Filter rentang tanggal publish
+-- 5.4. Full-text search menggunakan document_tsv
+SELECT id, title, url, summary, source, category, publish_date, crawl_date, content_hash
+FROM public.news
+WHERE document_tsv @@ to_tsquery('english', 'ekonomi & indonesia')
+ORDER BY publish_date DESC NULLS LAST, crawl_date DESC
+LIMIT 20 OFFSET 0;
+
+-- 5.5. Filter rentang tanggal publish
 SELECT id, title, url, summary, source, category, publish_date, crawl_date, content_hash
 FROM public.news
 WHERE (publish_date::date) BETWEEN DATE '2025-09-01' AND DATE '2025-09-30'
 ORDER BY publish_date DESC NULLS LAST, crawl_date DESC;
 
 
-## 5) Pembersihan Data Lama (Opsional via SQL Langsung)
+## 6) Pembersihan Data Lama (Opsional via SQL Langsung)
 
 -- Hapus berdasarkan crawl_date > N hari
 -- (Backend sudah menyediakan job cleanup; perintah ini untuk referensi manual)
@@ -114,7 +146,7 @@ WITH deleted AS (
 SELECT COUNT(*) AS deleted_count FROM deleted;
 
 
-## 6) Validasi dan Observasi
+## 7) Validasi dan Observasi
 
 -- Hitung total baris sebagai sanity check
 SELECT COUNT(*) FROM public.news;
@@ -136,7 +168,7 @@ GROUP BY url
 HAVING COUNT(*) > 1;
 
 
-## 7) Catatan
+## 8) Catatan
 
 - Pastikan koneksi memakai `sslmode=require` pada Supabase.
 - Unik pada kolom `url` memudahkan upsert (ON CONFLICT url DO UPDATE).

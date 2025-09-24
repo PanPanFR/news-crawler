@@ -20,9 +20,19 @@ def _get_redis_client() -> Redis:
     if _redis_client is not None:
         return _redis_client
 
-    redis_url: str = os.environ.get("REDIS_URL", "redis://localhost:6379")
+    # Check for Redis Cloud configuration first, then default
+    redis_host = os.environ.get("REDIS_HOST", "redis-12045.crce185.ap-seast-1-1.ec2.redns.redis-cloud.com")
+    redis_port = os.environ.get("REDIS_PORT", "12045")
+    redis_password = os.environ.get("REDIS_PASSWORD", "")
     
-    _redis_client = Redis.from_url(redis_url, decode_responses=True)
+    # If REDIS_URL is set, use it (for Render deployment)
+    redis_url = os.environ.get("REDIS_URL", f"redis://:{redis_password}@{redis_host}:{redis_port}")
+    
+    if redis_password and f"://" in redis_url and not "@@" in redis_url:
+        # If we have a password but it's not in the URL, create the URL with password
+        redis_url = f"redis://:{redis_password}@{redis_host}:{redis_port}"
+    
+    _redis_client = Redis.from_url(redis_url, decode_responses=True, health_check_interval=30)
     return _redis_client
 
 
