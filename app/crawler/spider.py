@@ -305,18 +305,26 @@ async def crawl_sources(
                 logger.error("Domain crawl error: %s", e)
                 continue
 
-            for item in items:
-                # Convert datetime objects to strings in ISO format
-                if 'publish_date' in item and isinstance(item['publish_date'], datetime):
-                    item['publish_date'] = item['publish_date'].isoformat()
-                if 'crawl_date' in item and isinstance(item['crawl_date'], datetime):
-                    item['crawl_date'] = item['crawl_date'].isoformat()
+            # Process items in batches for efficiency
+            batch_size = 50  # Process up to 50 items at a time
+            for i in range(0, len(items), batch_size):
+                batch = items[i:i + batch_size]
+                
                 try:
-                    await upsert_news(item)
-                    count += 1
+                    # Try using batch upsert if available
+                    from app.db.crud import upsert_news_batch
+                    ids = await upsert_news_batch(batch)
+                    count += len(ids)
                 except Exception as e:
-                    logger.warning("Upsert failed for %s: %s", item.get("url"), e)
-                    continue
+                    # Fallback to individual upserts if batch upsert fails
+                    logger.warning("Batch upsert failed, falling back to individual upserts: %s", e)
+                    for item in batch:
+                        try:
+                            await upsert_news(item)
+                            count += 1
+                        except Exception as individual_e:
+                            logger.warning("Upsert failed for %s: %s", item.get("url"), individual_e)
+                            continue
 
     logger.info("Crawl completed. Processed %d items.", count)
     return count

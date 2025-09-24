@@ -58,12 +58,27 @@ async def health():
         "time": datetime.now(timezone.utc).isoformat(),
     }
 
-# Optionally include API routers (implemented later)
+# Include API routers
 try:
     from app.api.routes import router as api_router  # type: ignore
     app.include_router(api_router, prefix="/api")
 except Exception as e:
     logger.info("API router not loaded yet: %s", e)
+
+
+# Render cron job endpoint
+@app.post("/trigger-crawl")
+async def trigger_crawl_endpoint():
+    """
+    Endpoint that can be triggered by Render's cron job to start crawling.
+    """
+    try:
+        from app.scheduler import run_crawl_job
+        count = await run_crawl_job(max_concurrent=3, domains=None)
+        return {"status": "ok", "message": f"Triggered crawl job, upserted {count} items", "upserted": count}
+    except Exception as e:
+        logger.error(f"Error in trigger crawl endpoint: {e}")
+        return {"status": "error", "message": str(e)}
 
 if __name__ == "__main__":
     import uvicorn

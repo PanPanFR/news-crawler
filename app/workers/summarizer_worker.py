@@ -16,8 +16,8 @@ from app.utils.content_extractor import extract_article_content, summarize_with_
 
 logger = logging.getLogger(__name__)
 
-# Rate limiting configuration
-RATE_LIMIT_DELAY = float(__import__('os').environ.get('LLM_RATE_LIMIT_DELAY', 1.0))  # seconds between requests
+# Rate limiting configuration - according to konteks, this should be 2 seconds for Groq
+RATE_LIMIT_DELAY = float(__import__('os').environ.get('LLM_RATE_LIMIT_DELAY', 2.0))  # seconds between requests
 
 # Retry configuration
 MAX_RETRY_ATTEMPTS = int(__import__('os').environ.get('MAX_RETRY_ATTEMPTS', 3))
@@ -82,41 +82,6 @@ class SummarizerWorker:
         except Exception as e:
             logger.error(f"Error adding news item {news_id} to failed queue: {e}")
 
-    async def retry_failed_items(self):
-        """
-        Move items from the failed queue back to the main queue if they haven't exceeded max attempts.
-        """
-        try:
-            # Get all items in the failed queue
-            failed_items = await self.redis_client.zrange(FAILED_SUMMARIZATION_QUEUE, 0, -1, withscores=True)
-            
-            for news_id, score in failed_items:
-                # Get the attempt count
-                attempts_data = await self.redis_client.hget(f"{FAILED_SUMMARIZATION_QUEUE}:attempts", news_id)
-                if attempts_data:
-                    attempts_info = json.loads(attempts_data)
-                    attempts = attempts_info.get("attempts", 1)
-                    
-                    if attempts < MAX_RETRY_ATTEMPTS:
-                        # Move the item back to the main queue with a lower score
-                        new_score = score - 5  # Reduce score for retry
-                        await self.redis_client.zadd(NEWS_SUMMARIZATION_QUEUE, {news_id: new_score})
-                        await self.redis_client.zrem(FAILED_SUMMARIZATION_QUEUE, news_id)
-                        await self.redis_client.hdel(f"{FAILED_SUMMARIZATION_QUEUE}:attempts", news_id)
-                        logger.info(f"Moved news item {news_id} back to main queue for retry #{attempts + 1}")
-                    else:
-                        logger.info(f"Max retry attempts reached for news item {news_id}. Removing from failed queue.")
-                        await self.redis_client.zrem(FAILED_SUMMARIZATION_QUEUE, news_id)
-                        await self.redis_client.hdel(f"{FAILED_SUMMARIZATION_QUEUE}:attempts", news_id)
-                else:
-                    # If we can't find attempt data, try it once more before removing
-                    await self.redis_client.zadd(NEWS_SUMMARIZATION_QUEUE, {news_id: score - 5})
-                    await self.redis_client.zrem(FAILED_SUMMARIZATION_QUEUE, news_id)
-                    logger.info(f"Re-queued unknown news item {news_id} to main queue")
-                    
-        except Exception as e:
-            logger.error(f"Error processing failed queue for retries: {e}")
-
     async def process_news_item(self, news_id: str, attempt: int = 1) -> bool:
         """
         Process a single news item: extract content, summarize, and update database.
@@ -172,6 +137,41 @@ class SummarizerWorker:
         except Exception as e:
             logger.error(f"Error processing news item {news_id} (attempt #{attempt}): {e}")
             return False
+
+    async def retry_failed_items(self):
+        """
+        Move items from the failed queue back to the main queue if they haven't exceeded max attempts.
+        """
+        try:
+            # Get all items in the failed queue
+            failed_items = await self.redis_client.zrange(FAILED_SUMMARIZATION_QUEUE, 0, -1, withscores=True)
+            
+            for news_id, score in failed_items:
+                # Get the attempt count
+                attempts_data = await self.redis_client.hget(f"{FAILED_SUMMARIZATION_QUEUE}:attempts", news_id)
+                if attempts_data:
+                    attempts_info = json.loads(attempts_data)
+                    attempts = attempts_info.get("attempts", 1)
+                    
+                    if attempts < MAX_RETRY_ATTEMPTS:
+                        # Move the item back to the main queue with a lower score
+                        new_score = score - 5  # Reduce score for retry
+                        await self.redis_client.zadd(NEWS_SUMMARIZATION_QUEUE, {news_id: new_score})
+                        await self.redis_client.zrem(FAILED_SUMMARIZATION_QUEUE, news_id)
+                        await self.redis_client.hdel(f"{FAILED_SUMMARIZATION_QUEUE}:attempts", news_id)
+                        logger.info(f"Moved news item {news_id} back to main queue for retry #{attempts + 1}")
+                    else:
+                        logger.info(f"Max retry attempts reached for news item {news_id}. Removing from failed queue.")
+                        await self.redis_client.zrem(FAILED_SUMMARIZATION_QUEUE, news_id)
+                        await self.redis_client.hdel(f"{FAILED_SUMMARIZATION_QUEUE}:attempts", news_id)
+                else:
+                    # If we can't find attempt data, try it once more before removing
+                    await self.redis_client.zadd(NEWS_SUMMARIZATION_QUEUE, {news_id: score - 5})
+                    await self.redis_client.zrem(FAILED_SUMMARIZATION_QUEUE, news_id)
+                    logger.info(f"Re-queued unknown news item {news_id} to main queue")
+                    
+        except Exception as e:
+            logger.error(f"Error processing failed queue for retries: {e}")
 
     async def run(self):
         """
@@ -270,7 +270,13 @@ class SummarizerWorker:
         return processed_count
 
 
+async def main():
+    # Initialize and run the summarizer worker continuously
+    worker = SummarizerWorker(max_concurrent=1)
+    
+    # Run continuously since this is a background worker
+    await worker.run()
+
 if __name__ == "__main__":
-    # This allows running the worker as a standalone script
-    worker = SummarizerWorker()
-    asyncio.run(worker.run())
+    import asyncio
+    asyncio.run(main())

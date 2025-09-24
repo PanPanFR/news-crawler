@@ -147,12 +147,40 @@ async def upsert_news(item: Dict[str, Any]) -> str:
                   crawl_date (datetime), content_hash (str|None)
     Returns the ID of the inserted/updated row.
     """
+    # Ensure datetime objects are properly formatted for Supabase
+    for key in ['publish_date', 'crawl_date']:
+        if key in item and item[key] is not None and not isinstance(item[key], str):
+            item[key] = item[key].isoformat()
+    
     # Supabase handles upsert automatically with the upsert method
     result = await upsert(
         table="news",
         data=item
     )
     return result.get("id", "")
+
+
+async def upsert_news_batch(items: List[Dict[str, Any]]) -> List[str]:
+    """
+    Batch insert or update multiple news rows by unique URL constraint.
+    This is more efficient for processing many items at once.
+    Returns the list of IDs of the inserted/updated rows.
+    """
+    # Ensure datetime objects are properly formatted for Supabase
+    for item in items:
+        for key in ['publish_date', 'crawl_date']:
+            if key in item and item[key] is not None and not isinstance(item[key], str):
+                item[key] = item[key].isoformat()
+    
+    # Supabase handles batch upsert automatically
+    results = await upsert(
+        table="news",
+        data=items
+    )
+    
+    # Extract IDs from results
+    ids = [item.get("id", "") for item in results]
+    return ids
 
 
 async def delete_older_than(days: int = 30, by_publish_date: bool = False) -> int:

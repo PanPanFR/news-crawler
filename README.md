@@ -1,17 +1,21 @@
-# News Crawler Backend
+# News Crawler with AI Summarization
 
-A FastAPI-based news aggregator backend that crawls news from multiple Indonesian and international sources, stores them in Supabase, and provides RESTful APIs for frontend consumption.
+A scalable news crawler system with AI-powered summarization, optimized for deployment on Render with Redis priority queues and background processing.
 
 ## 🚀 Features
 
 - **Multi-source News Crawling**: Supports RSS feeds and HTML fallback scraping
+- **AI-Powered Summarization**: Uses Groq API with gemma2-9b-it model for news summarization
+- **Priority Queue System**: Implements Redis sorted sets for prioritized summarization
 - **Concurrent Processing**: Configurable concurrency for efficient crawling
 - **Database Integration**: Uses Supabase (PostgreSQL) for data storage
 - **RESTful API**: FastAPI-powered endpoints for news retrieval and management
-- **Automated Scheduling**: CLI tools for scheduled crawling and cleanup
+- **Automated Scheduling**: CLI tools for scheduled crawling and prioritization
 - **Duplicate Detection**: Content hash-based deduplication
-- **Rate Limiting**: Built-in rate limiting to respect source websites
+- **Rate Limiting**: Built-in rate limiting to comply with API quotas (2s delay)
+- **Render Optimized**: Configured for deployment with appropriate resource allocation
 - **Error Handling**: Robust error handling and logging
+- **Retry Mechanism**: Failed summarizations are retried with exponential backoff
 
 ## 📋 Table of Contents
 
@@ -112,7 +116,10 @@ The API will be available at:
 | `GET` | `/api/news` | List news with filters and pagination |
 | `GET` | `/api/news/{id}` | Get specific news item |
 | `POST` | `/api/news/crawl` | Trigger manual crawling |
+| `POST` | `/api/news/prioritize` | Trigger prioritization of unsummarized news |
+| `POST` | `/api/news/summarize` | Trigger summarization batch |
 | `POST` | `/api/news/cleanup` | Trigger data cleanup |
+| `POST` | `/trigger-crawl` | Cron job endpoint to start crawling and prioritization |
 
 ### Query Parameters
 
@@ -128,6 +135,13 @@ The API will be available at:
 #### `/api/news/crawl` (Manual Crawl)
 - `concurrency`: Max concurrent domains (1-10, default: 3)
 - `domains`: Comma-separated domain list (optional)
+
+#### `/api/news/prioritize` (Trigger Prioritization)
+- No parameters required
+
+#### `/api/news/summarize` (Trigger Summarization)
+- `concurrency`: Max concurrent summarization tasks (1-5, default: 1)
+- `batch`: Run in batch mode (true) or continuous mode (false, default: true)
 
 #### `/api/news/cleanup` (Data Cleanup)
 - `days`: Delete items older than N days (1-365, default: 30)
@@ -163,6 +177,23 @@ python -m app.scheduler crawl --concurrency 3
 python -m app.scheduler crawl --domains kompas.com,detik.com --concurrency 2
 ```
 
+### News Prioritization
+
+```bash
+# Run prioritizer to score and queue unsummarized news
+python -m app.scheduler prioritize
+```
+
+### News Summarization
+
+```bash
+# Process summarization queue in batch mode (processes available items then exits)
+python -m app.scheduler summarize --concurrency 1 --batch
+
+# Run summarization worker continuously (should be used as a background process)
+python -m app.scheduler summarize --concurrency 1 --continuous
+```
+
 ### Data Cleanup
 
 ```bash
@@ -175,56 +206,92 @@ python -m app.scheduler cleanup --days 30 --by-publish
 
 ## 🌐 Deployment
 
-### Render Web Service
+### Render Deployment
 
-1. **Service Configuration**:
+The system is optimized for deployment on Render with three services:
+
+1. **Web Service Configuration**:
    - Service type: Web Service
    - Runtime: Python
-   - Build command: `pip install -r requirements.txt`
-   - Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+   - Build command: 
+     ```bash
+     python -m venv venv
+     source venv/bin/activate
+     pip install -r requirements.txt
+     ```
+   - Start command:
+     ```bash
+     source venv/bin/activate
+     uvicorn app.main:app --host 0.0.0.0 --port $PORT
+     ```
 
-2. **Environment Variables**:
+2. **Redis Add-on**:
+   - Required for priority queue management
+   - Automatically configured via `render.yaml`
+
+3. **Background Worker**:
+   - Service type: Worker
+   - Runtime: Python
+   - Same build command as Web Service
+   - Start command:
+     ```bash
+     source venv/bin/activate
+     python -m app.workers.summarizer_worker
+     ```
+
+4. **Environment Variables**:
    - `SUPABASE_URL`: Your Supabase project URL
    - `SUPABASE_KEY`: Your Supabase anon key
+   - `REDIS_URL`: Automatically configured via service connection
+   - `LLM_API_KEY`: Your Groq API key
+   - `LLM_SERVICE`: Set to 'groq' (default)
+   - `LLM_RATE_LIMIT_DELAY`: Delay between API requests (default: 2.0 seconds)
+   - `MAX_RETRY_ATTEMPTS`: Max attempts to summarize news (default: 3)
+   - `FAILED_QUEUE_TTL`: Time to live for failed queue items (default: 3600 seconds)
 
-### Render Scheduler Jobs
+### Render Cron Job
 
-Create two scheduled jobs:
+The system uses a cron job to trigger crawling every 40 minutes:
 
-#### 1. Crawl Job
-- **Name**: `crawl-news`
-- **Schedule**: Every 15-30 minutes
-- **Command**: `python -m app.scheduler crawl --concurrency 3`
+- **Schedule**: `*/40 * * * *` (every 40 minutes)
+- **Command**: `curl -X POST https://your-service-name.onrender.com/trigger-crawl`
+- **Retries**: 2
 
-#### 2. Cleanup Job
-- **Name**: `cleanup-news`
-- **Schedule**: Daily at 01:00
-- **Command**: `python -m app.scheduler cleanup --days 30`
+This configuration ensures the system stays within API rate limits (30 requests/minute max, 14,400 requests/day max).
 
 ## 📁 Project Structure
 
 ```
-backend/
+/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py              # FastAPI application entry point
+│   ├── startup.py           # Application startup configuration for Render
 │   ├── scheduler.py         # CLI scheduler for crawling and cleanup
 │   ├── api/
 │   │   └── routes.py        # API endpoints and request/response models
 │   ├── crawler/
 │   │   ├── spider.py        # Main crawling logic and RSS parsing
 │   │   └── utils.py         # Utility functions for crawling
-│   └── db/
-│       ├── database.py      # Database connection and client
-│       ├── models.py        # Pydantic models for data validation
-│       └── crud.py          # Database operations (CRUD)
+│   ├── db/
+│   │   ├── database.py      # Database connection and client
+│   │   ├── models.py        # Pydantic models for data validation
+│   │   ├── crud.py          # Database operations (CRUD)
+│   │   └── redis_client.py  # Redis client for queue management
+│   ├── utils/
+│   │   └── content_extractor.py  # Content extraction and LLM integration
+│   └── workers/
+│       └── summarizer_worker.py  # Background worker for summarization
 ├── .env                     # Environment variables (create this)
-├── requirements.txt         # Python dependencies
-├── konfigurasi.md          # Detailed configuration guide
+├── render.yaml             # Render deployment configuration
+├── Dockerfile              # Docker configuration for containerized deployment
+├── requirements.txt        # Python dependencies
+├── backend_konteks.md      # Backend architecture documentation
+├── konteks2.md             # Frontend design documentation
 ├── skema.md                # Database schema and SQL commands
-├── konteks.md              # Backend design documentation
-├── konteks 2 be.md         # Advanced architecture notes
-└── README.md               # This file
+├── README.md               # This file
+├── test_new_architecture.py # Test for new architecture
+└── test_render_limits.py   # Test for Render deployment limits
 ```
 
 ## 📰 Supported News Sources
@@ -289,6 +356,29 @@ The crawler supports the following news sources with RSS feeds:
    - Reduce concurrency: `--concurrency 1`
    - Increase delays in rate limiter configuration
 
+### Architecture
+
+The system follows a microservices architecture with the following components:
+
+```
+[Crawler] -> [Database PostgreSQL] -> [Skrip Prioritas] -> [Antrian Prioritas REDIS] -> [Worker Summarizer] -> [Database PostgreSQL (Update)]
+```
+
+- **Crawler**: Extracts news data and stores with NULL summary field
+- **Database**: Stores news articles with summaries
+- **Prioritizer**: Scores and queues unsummarized news items by priority
+- **Redis Queue**: Manages prioritized news for summarization
+- **Summarizer Worker**: Processes queue with rate-limited LLM API calls
+- **Cron Job**: Triggers crawling every 40 minutes
+
+### Configuration Options
+
+- `LLM_RATE_LIMIT_DELAY`: Delay in seconds between API requests (default: 2.0)
+- `MAX_RETRY_ATTEMPTS`: Max attempts to summarize news (default: 3)
+- `FAILED_QUEUE_TTL`: Time to live for failed queue items in seconds (default: 3600)
+- `LLM_SERVICE`: LLM service to use (groq, openai, or anthropic)
+- `RATE_LIMIT_DELAY`: Internal delay between processing tasks
+
 ### Logging
 
 The application uses Python's built-in logging. To see detailed logs:
@@ -299,6 +389,13 @@ export PYTHONPATH=.
 python -c "import logging; logging.basicConfig(level=logging.INFO)"
 python -m app.scheduler crawl
 ```
+
+### Performance & Rate Limiting
+
+- Rate Limit: 2 seconds between API requests (30 requests/minute)
+- Daily Limit: Max 14,400 requests (well below API quota)
+- Batch Processing: Up to 300 news items processed in ~10 minutes
+- Cron Schedule: Every 40 minutes (36 times per day)
 
 ## 📈 Monitoring
 
@@ -327,11 +424,11 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🔗 Related Documentation
 
-- [`konfigurasi.md`](konfigurasi.md) - Detailed configuration and deployment guide
+- [`backend_konteks.md`](backend_konteks.md) - Backend architecture and system design
 - [`skema.md`](skema.md) - Database schema and SQL commands
-- [`konteks.md`](konteks.md) - Backend design and architecture
-- [`konteks 2 be.md`](konteks%202%20be.md) - Advanced architecture with Redis integration
+- [`konteks2.md`](konteks2.md) - Frontend design documentation
+- [`render.yaml`](render.yaml) - Render deployment configuration
 
 ---
 
-For more detailed configuration and deployment instructions, see [`konfigurasi.md`](konfigurasi.md).
+For more detailed configuration and deployment instructions, see the documentation files and `render.yaml`.

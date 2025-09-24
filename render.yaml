@@ -1,0 +1,81 @@
+services:
+  - type: web
+    name: news-crawler-backend
+    env: python
+    region: frankfurt
+    buildCommand: |
+      python -m venv venv
+      source venv/bin/activate
+      pip install -r requirements.txt
+    startCommand: |
+      source venv/bin/activate
+      uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: REDIS_URL
+        fromService:
+          name: news-crawler-redis
+          property: connectionString
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_SERVICE
+        value: groq
+      - key: LLM_RATE_LIMIT_DELAY
+        value: 2.0
+      - key: MAX_RETRY_ATTEMPTS
+        value: 3
+      - key: FAILED_QUEUE_TTL
+        value: 3600
+      - key: RENDER
+        value: true
+
+  - type: redis
+    name: news-crawler-redis
+    region: frankfurt
+
+  - type: worker
+    name: news-summarizer-worker
+    env: python
+    region: frankfurt
+    buildCommand: |
+      python -m venv venv
+      source venv/bin/activate
+      pip install -r requirements.txt
+    startCommand: |
+      source venv/bin/activate
+      python -m app.workers.summarizer_worker
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: REDIS_URL
+        fromService:
+          name: news-crawler-redis
+          property: connectionString
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_SERVICE
+        value: groq
+      - key: LLM_RATE_LIMIT_DELAY
+        value: 2.0
+      - key: MAX_RETRY_ATTEMPTS
+        value: 3
+      - key: FAILED_QUEUE_TTL
+        value: 3600
+      - key: RENDER
+        value: true
+
+cron-jobs:
+  - name: crawl-scheduler
+    schedule: "*/40 * * * *"
+    image: curlimages/curl
+    command: ["curl", "-X", "POST", "https://news-crawler-backend.onrender.com/trigger-crawl"]
+    retries: 2
