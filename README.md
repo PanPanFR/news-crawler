@@ -422,13 +422,28 @@ python -m app.scheduler crawl
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
+## 🚀 Quick Start for Deployment
+
+### For Render Deployment:
+1. Fork this repository
+2. Create a new Web Service on Render from your GitHub repository
+3. Add the required environment variables in the Render dashboard
+4. The `render.yaml` file will automatically configure all three services (Web, Worker, Redis) and the Cron job
+
+### Required Environment Variables:
+- `SUPABASE_URL` - Your Supabase project URL
+- `SUPABASE_KEY` - Your Supabase anon key
+- `LLM_API_KEY` - Your LLM API key (Groq recommended)
+- `LLM_SERVICE` - Set to 'groq' (default)
+
 ## 🔗 Related Documentation
 
 - [`backend_konteks.md`](backend_konteks.md) - Backend architecture and system design
 - [`skema.md`](skema.md) - Database schema and SQL commands
 - [`konteks2.md`](konteks2.md) - Frontend design documentation
 - [`render.yaml`](render.yaml) - Render deployment configuration
+- [`SETUP_GUIDE.md`](SETUP_GUIDE.md) - Complete setup and deployment guide
 
 ---
 
-For more detailed configuration and deployment instructions, see the documentation files and `render.yaml`.
+For more detailed configuration and deployment instructions, see `SETUP_GUIDE.md`.

@@ -113,19 +113,7 @@ async def count_news(
                 filtered_items.append(item)
         return len(filtered_items)
     
-    return total_count
     
-    # Apply text search filter locally if needed
-    if q:
-        filtered_items = []
-        q_lower = q.lower()
-        for item in items:
-            if (q_lower in (item.get("title", "") or "").lower() or 
-                q_lower in (item.get("summary", "") or "").lower()):
-                filtered_items.append(item)
-        items = filtered_items
-    
-    return len(items)
 
 
 async def fetch_news_by_id(news_id: UUID) -> Optional[Dict[str, Any]]:
