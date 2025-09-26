@@ -12,7 +12,6 @@ app = FastAPI(
     default_response_class=ORJSONResponse,
 )
 
-# CORS configuration - adjust origins via env/config later
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -23,10 +22,46 @@ app.add_middleware(
 
 logger = logging.getLogger("uvicorn.error")
 
-# Initialize and close Supabase client with app lifecycle
 try:
     from app.db.database import get_supabase_client, close_client  # type: ignore
 
+    import os
+    platform = os.getenv("PLATFORM", os.getenv("RAILWAY", "default"))
+    
+    if platform == "RAILWAY":
+        from app.startup import lifespan
+        app.router.lifespan_context = lifespan
+    elif platform == "HUGGINGFACE_SPACES":
+        @app.on_event("startup")
+        async def _startup():
+            try:
+                await get_supabase_client()
+                logger.info("Supabase client initialized for Hugging Face Spaces")
+            except Exception as e:
+                logger.info("Supabase client not initialized: %s", e)
+
+        @app.on_event("shutdown")
+        async def _shutdown():
+            try:
+                await close_client()
+                logger.info("Supabase client closed for Hugging Face Spaces")
+            except Exception:
+                pass
+    else:
+        @app.on_event("startup")
+        async def _startup():
+            try:
+                await get_supabase_client()
+            except Exception as e:
+                logger.info("Supabase client not initialized: %s", e)
+
+        @app.on_event("shutdown")
+        async def _shutdown():
+            try:
+                await close_client()
+            except Exception:
+                pass
+except ImportError:
     @app.on_event("startup")
     async def _startup():
         try:
@@ -58,7 +93,6 @@ async def health():
         "time": datetime.now(timezone.utc).isoformat(),
     }
 
-# Include API routers
 try:
     from app.api.routes import router as api_router  # type: ignore
     app.include_router(api_router, prefix="/api")
@@ -66,11 +100,11 @@ except Exception as e:
     logger.info("API router not loaded yet: %s", e)
 
 
-# Render cron job endpoint
 @app.post("/trigger-crawl")
 async def trigger_crawl_endpoint():
     """
-    Endpoint that can be triggered by Render's cron job to start crawling.
+    Endpoint that can be triggered by external services to start crawling.
+    Works with Render, Hugging Face Spaces, and other platforms.
     """
     try:
         from app.scheduler import run_crawl_job
@@ -79,7 +113,3 @@ async def trigger_crawl_endpoint():
     except Exception as e:
         logger.error(f"Error in trigger crawl endpoint: {e}")
         return {"status": "error", "message": str(e)}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

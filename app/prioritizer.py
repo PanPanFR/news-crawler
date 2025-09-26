@@ -10,7 +10,6 @@ from app.db.redis_client import get_redis_client, NEWS_SUMMARIZATION_QUEUE
 
 logger = logging.getLogger(__name__)
 
-# Define scoring weights for different factors
 SOURCE_SCORES = {
     'kompas.com': 20,
     'detik.com': 20,
@@ -53,22 +52,18 @@ async def calculate_priority_score(title: str, source: str, publish_date: Option
     """
     score = 0
 
-    # Add score based on source
     source_lower = source.lower()
     for src, src_score in SOURCE_SCORES.items():
         if src in source_lower:
             score += src_score
             break
 
-    # Add score based on keywords in title
     title_lower = title.lower()
     for keyword, keyword_score in KEYWORD_SCORES.items():
         if keyword in title_lower:
             score += keyword_score
 
-    # Add score based on recency (newer news gets higher score)
     if publish_date:
-        # This is a simplified recency calculation - in production you might want more sophisticated logic
         score += 5  # Base recency score
         
     return score
@@ -86,9 +81,8 @@ async def prioritize_news() -> int:
     supabase = await get_supabase_client()
     redis_client = await get_redis_client()
     
-    # Fetch all news with NULL summary (unprocessed items)
-    query_result = supabase.table("news").select("id, title, source, publish_date").eq("summary", None).execute()
-    items = query_result.data
+    query_result = supabase.table("news").select("id, title, source, category, publish_date").is_("summary", "null").execute()
+    items = query_result.data or []
     
     if not items:
         logger.info("No news items to prioritize")
@@ -100,14 +94,20 @@ async def prioritize_news() -> int:
     
     for item in items:
         try:
-            # Calculate priority score
+            if not item.get('category'):
+                try:
+                    supabase.table("news").delete().eq("id", item['id']).execute()
+                    logger.info(f"Deleted news item {item['id']} due to missing category")
+                except Exception as e:
+                    logger.error(f"Failed to delete item {item.get('id', 'unknown')} with missing category: {e}")
+                continue
+
             score = await calculate_priority_score(
                 title=item['title'],
                 source=item['source'],
                 publish_date=item.get('publish_date')
             )
             
-            # Add to Redis sorted set with priority score
             await redis_client.zadd(NEWS_SUMMARIZATION_QUEUE, {item['id']: score})
             logger.debug(f"Added news item {item['id']} to queue with score {score}")
             
@@ -120,7 +120,3 @@ async def prioritize_news() -> int:
     logger.info(f"Prioritization completed. Added {prioritized_count} items to queue.")
     return prioritized_count
 
-
-if __name__ == "__main__":
-    # This allows running the prioritizer as a standalone script
-    asyncio.run(prioritize_news())

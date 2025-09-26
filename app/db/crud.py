@@ -27,7 +27,6 @@ async def fetch_news(
     client = await get_supabase_client()
     query = client.table("news").select(COLUMNS)
     
-    # Apply filters using method chaining
     if category:
         query = query.eq("category", category)
     if source:
@@ -37,10 +36,8 @@ async def fetch_news(
     if to_date:
         query = query.lte("publish_date", to_date.isoformat())
     
-    # Apply ordering
     query = query.order("publish_date", desc=True).order("crawl_date", desc=True)
     
-    # Apply pagination
     if offset:
         query = query.range(offset, offset + limit - 1)
     else:
@@ -49,7 +46,6 @@ async def fetch_news(
     response = query.execute()
     items = response.data
     
-    # Apply text search filter locally if needed
     if q:
         filtered_items = []
         q_lower = q.lower()
@@ -73,11 +69,10 @@ async def count_news(
     Return the total count for the given filters.
     """
     from .database import get_supabase_client
-    
+
     client = await get_supabase_client()
     query = client.table("news").select("id", count="exact")
-    
-    # Apply filters using method chaining
+
     if category:
         query = query.eq("category", category)
     if source:
@@ -88,32 +83,28 @@ async def count_news(
         query = query.lte("publish_date", to_date.isoformat())
 
     response = query.execute()
-    
-    # Get count from response
-    if hasattr(response, 'count') and response.count is not None:
-        total_count = response.count
-    else:
-        # Fallback if count not available
-        items = response.data
-        total_count = len(items)
-    
-    # Apply text search filter locally if needed
-    if q and items:
+
+    items = response.data or []
+
+    total_count = response.count if hasattr(response, "count") and response.count is not None else len(items)
+
+    if q:
         filtered_items = []
         q_lower = q.lower()
         for item in items:
-            # Need to fetch full data for text search
             full_item = await fetch_one(
                 table="news",
                 filters={"id": item["id"]},
-                select=COLUMNS
+                select=COLUMNS,
             )
-            if full_item and (q_lower in (full_item.get("title", "") or "").lower() or
-                q_lower in (full_item.get("summary", "") or "").lower()):
+            if full_item and (
+                q_lower in (full_item.get("title", "") or "").lower()
+                or q_lower in (full_item.get("summary", "") or "").lower()
+            ):
                 filtered_items.append(item)
         return len(filtered_items)
-    
-    
+
+    return total_count
 
 
 async def fetch_news_by_id(news_id: UUID) -> Optional[Dict[str, Any]]:
@@ -135,12 +126,10 @@ async def upsert_news(item: Dict[str, Any]) -> str:
                   crawl_date (datetime), content_hash (str|None)
     Returns the ID of the inserted/updated row.
     """
-    # Ensure datetime objects are properly formatted for Supabase
     for key in ['publish_date', 'crawl_date']:
         if key in item and item[key] is not None and not isinstance(item[key], str):
             item[key] = item[key].isoformat()
     
-    # Supabase handles upsert automatically with the upsert method
     result = await upsert(
         table="news",
         data=item
@@ -154,19 +143,16 @@ async def upsert_news_batch(items: List[Dict[str, Any]]) -> List[str]:
     This is more efficient for processing many items at once.
     Returns the list of IDs of the inserted/updated rows.
     """
-    # Ensure datetime objects are properly formatted for Supabase
     for item in items:
         for key in ['publish_date', 'crawl_date']:
             if key in item and item[key] is not None and not isinstance(item[key], str):
                 item[key] = item[key].isoformat()
     
-    # Supabase handles batch upsert automatically
     results = await upsert(
         table="news",
         data=items
     )
     
-    # Extract IDs from results
     ids = [item.get("id", "") for item in results]
     return ids
 
@@ -178,8 +164,6 @@ async def delete_older_than(days: int = 30, by_publish_date: bool = False) -> in
     - Else compare crawl_date
     Returns deleted rows count.
     """
-    # For simplicity, we'll fetch and delete items one by one
-    # In production, you might want to use Supabase's RPC functions or bulk operations
     
     if by_publish_date:
         filters = {"publish_date.lt": f"now()-{days}days"}
@@ -191,4 +175,14 @@ async def delete_older_than(days: int = 30, by_publish_date: bool = False) -> in
         filters=filters
     )
     
+    return len(deleted_items)
+async def delete_placeholder_summaries(placeholder: str = "No content available for summarization") -> int:
+    """
+    Delete news rows whose summary equals the given placeholder string.
+    Returns the count of deleted rows.
+    """
+    deleted_items = await delete(
+        table="news",
+        filters={"summary": placeholder}
+    )
     return len(deleted_items)

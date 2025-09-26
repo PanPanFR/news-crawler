@@ -30,7 +30,6 @@ class NewsListResponse(BaseModel):
     items: List[NewsItemOut]
 
 
-# Try to import real DB-backed CRUD; fall back to in-memory sample dataset if unavailable
 HAVE_DB = False
 try:
     from app.db.crud import (  # type: ignore
@@ -102,7 +101,6 @@ async def list_news(
         )
         return NewsListResponse(total=total, limit=limit, offset=offset, items=items)
 
-    # Fallback in-memory filtering (for development before DB layer is ready)
     data = _FAKE_DATA
 
     def _match(record: dict) -> bool:
@@ -172,7 +170,6 @@ async def trigger_cleanup(
     Trigger a cleanup job to delete old news.
     Example: POST /api/news/cleanup?days=30&by_publish=true
     """
-    # Lazy import to avoid module import errors if DB isn't configured during app startup
     from app.db.crud import delete_older_than  # type: ignore
 
     deleted = await delete_older_than(days=days, by_publish_date=by_publish)
@@ -206,3 +203,14 @@ async def trigger_summarize(
 
 
 __all__ = ["router"]
+@router.post("/cleanup-placeholders")
+async def trigger_cleanup_placeholders(
+    placeholder: str = Query("No content available for summarization", description="Delete rows where summary equals this placeholder")
+):
+    """
+    Delete news rows whose summary equals the given placeholder string.
+    Example: POST /api/news/cleanup-placeholders
+    """
+    from app.db.crud import delete_placeholder_summaries  # type: ignore
+    deleted = await delete_placeholder_summaries(placeholder=placeholder)
+    return {"status": "ok", "deleted": deleted, "placeholder": placeholder}

@@ -31,6 +31,10 @@ A scalable news crawler system with AI-powered summarization, optimized for depl
 - [Supported News Sources](#supported-news-sources)
 - [Contributing](#contributing)
 
+## Code Cleanup Policy
+
+- Configuration and usage are documented here instead of inline comments. Refer to files such as [app/main.py](app/main.py), [app/api/routes.py](app/api/routes.py), and [app/db/database.py](app/db/database.py) for current implementations without comments.
+
 ## 🔧 Prerequisites
 
 - Python 3.11+ (recommended)

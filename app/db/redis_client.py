@@ -5,7 +5,6 @@ from typing import Optional
 from redis.asyncio import Redis
 from dotenv import load_dotenv
 
-# Load environment variables from .env if present (useful for local dev)
 load_dotenv()
 
 _redis_client: Optional[Redis] = None
@@ -21,24 +20,18 @@ def _get_redis_client() -> Redis:
     if _redis_client is not None:
         return _redis_client
 
-    # Check if we're using Redis Cloud configuration
     redis_host = os.environ.get("REDIS_HOST")
     redis_port = os.environ.get("REDIS_PORT")
     redis_password = os.environ.get("REDIS_PASSWORD")
     
-    # If all Redis Cloud variables are present, use them
     if redis_host and redis_port:
         if redis_password:
-            # Use password if provided
             redis_url = f"rediss://:{redis_password}@{redis_host}:{redis_port}"
         else:
-            # Connect without password
             redis_url = f"rediss://{redis_host}:{redis_port}"
     else:
-        # Fallback to REDIS_URL (for local development)
         redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379")
     
-    # Create the Redis client with the determined URL
     _redis_client = Redis.from_url(
         redis_url, 
         decode_responses=True, 
@@ -67,6 +60,5 @@ async def close_redis_client() -> None:
         _redis_client = None
 
 
-# Queue name constants
 NEWS_SUMMARIZATION_QUEUE = "news_summarization_queue"
 FAILED_SUMMARIZATION_QUEUE = "failed_summarization_queue"

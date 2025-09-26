@@ -15,16 +15,16 @@ RUN apt-get update \\
     && rm -rf /var/lib/apt/lists/*
 
 # Copy project requirements
-COPY backend/requirements.txt .
+COPY requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy project
-COPY backend/ .
+COPY . .
 
 # Expose port
 EXPOSE $PORT
 
 # Run the application
-CMD [\"sh\", \"-c\", \"uvicorn app.main:app --host 0.0.0.0 --port $PORT\"]
+CMD [\"sh\", \"-c\", \"uvicorn app:app --host 0.0.0.0 --port $PORT\"]

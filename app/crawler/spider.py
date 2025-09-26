@@ -88,14 +88,72 @@ def _feed_guessers(domain: str) -> List[str]:
 
 
 def _extract_category(entry: dict) -> Optional[str]:
+    """
+    Normalize RSS tags into main categories:
+    politik, ekonomi, bisnis, teknologi, olahraga, hiburan, kesehatan, internasional, nasional
+    """
     try:
         tags = entry.get("tags") or []
+        MAIN = {
+            "politik": "politik",
+            "politics": "politik",
+            "pemerintah": "politik",
+            "ekonomi": "ekonomi",
+            "economy": "ekonomi",
+            "bisnis": "bisnis",
+            "business": "bisnis",
+            "market": "bisnis",
+            "keuangan": "bisnis",
+            "teknologi": "teknologi",
+            "technology": "teknologi",
+            "tech": "teknologi",
+            "sains": "teknologi",
+            "olahraga": "olahraga",
+            "sport": "olahraga",
+            "hiburan": "hiburan",
+            "entertainment": "hiburan",
+            "seleb": "hiburan",
+            "kesehatan": "kesehatan",
+            "health": "kesehatan",
+            "internasional": "internasional",
+            "world": "internasional",
+            "dunia": "internasional",
+            "nasional": "nasional",
+            "indonesia": "nasional",
+        }
         for t in tags:
             term = t.get("term")
             if isinstance(term, str) and term.strip():
-                return term.strip()
+                k = term.strip().lower()
+                if k in MAIN:
+                    return MAIN[k]
+                for key in MAIN.keys():
+                    if key in k:
+                        return MAIN[key]
     except Exception:
         pass
+    return None
+
+def _guess_main_category(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return None
+    s = text.lower()
+    if any(w in s for w in ["pemerintah", "politik", "pilpres", "pemilu", "menteri", "dpr", "presiden"]):
+        return "politik"
+    if any(w in s for w in ["ekonomi", "bisnis", "pasar", "market", "saham", "rupiah", "harga", "investasi", "apbn", "pajak"]):
+        return "bisnis"
+    if any(w in s for w in ["teknologi", "ai", "gadget", "aplikasi", "software", "internet", "startup"]):
+        return "teknologi"
+    if any(w in s for w in ["olahraga", "sport", "liga", "sepak bola", "badminton", "basket", "turnamen"]):
+        return "olahraga"
+    if any(w in s for w in ["hiburan", "artis", "film", "musik", "konser", "seleb"]):
+        return "hiburan"
+    if any(w in s for w in ["kesehatan", "vaksin", "rumah sakit", "dokter", "gizi"]):
+        return "kesehatan"
+    if any(w in s for w in ["dunia", "internasional", "global", "asing", "luar negeri"]):
+        return "internasional"
+    if any(w in s for w in ["indonesia", "nasional", "jakarta", "provinsi", "kabupaten", "kota"]):
+        return "nasional"
     return None
 
 
@@ -110,7 +168,6 @@ async def _parse_rss_content(text: str, source_domain: str) -> List[dict]:
         if not url or not title:
             continue
 
-        # Don't store summaries in the crawler - let the summarizer worker handle it
         summary = None
         publish_date = parse_feed_datetime(e)
         if publish_date:
@@ -121,7 +178,7 @@ async def _parse_rss_content(text: str, source_domain: str) -> List[dict]:
             "url": url,
             "summary": None,  # Don't store summaries in crawler - let the summarizer worker handle it
             "source": source_domain,
-            "category": _extract_category(e),
+            "category": (_extract_category(e) or _guess_main_category(title)),
             "publish_date": publish_date,
             "crawl_date": now,
             "content_hash": compute_content_hash(url, title, None),
@@ -139,7 +196,6 @@ def _unique_urls(urls: Iterable[str], domain: str, limit: int = 30) -> List[str]
             if netloc.startswith("www."):
                 netloc = netloc[4:]
             if netloc and domain not in netloc:
-                # Only keep in-domain links as a simple relevance heuristic
                 continue
         except Exception:
             continue
@@ -158,7 +214,6 @@ def _html_candidate_links(soup: BeautifulSoup, base_url: str) -> List[Tuple[str,
     """
     candidates: List[Tuple[str, Optional[str]]] = []
 
-    # Headline-like anchors
     for sel in [
         "a[href][data-article-id]",
         "a[href].headline",
@@ -176,7 +231,6 @@ def _html_candidate_links(soup: BeautifulSoup, base_url: str) -> List[Tuple[str,
             text = clean_text(a.get_text()) or clean_text(a.get("title")) or clean_text(a.get("aria-label"))
             candidates.append((href, text))
 
-    # Fallback: all anchors
     if not candidates:
         for a in soup.find_all("a", href=True):
             href = normalize_url(base_url, a.get("href"))
@@ -204,7 +258,6 @@ async def _html_fallback_scrape(client: httpx.AsyncClient, domain: str) -> List[
     items: List[dict] = []
     for u in uniq:
         title = None
-        # Try to fetch target page title quickly (lightweight)
         try:
             page = await fetch_html(client, u, timeout=8.0)
             if page:
@@ -215,17 +268,14 @@ async def _html_fallback_scrape(client: httpx.AsyncClient, domain: str) -> List[
             pass
 
         if not title:
-            # fallback title from anchor text earlier if available
             try:
                 title = next((t for (url, t) in cand if url == u and t), None)
             except Exception:
                 title = None
 
         if not title:
-            # skip if we couldn't find any reasonable title
             continue
 
-        # Don't store summaries in the crawler - let the summarizer worker handle it
         summary = None
 
         items.append(
@@ -234,7 +284,7 @@ async def _html_fallback_scrape(client: httpx.AsyncClient, domain: str) -> List[
                 "url": u,
                 "summary": None,  # Don't store summaries in crawler - let the summarizer worker handle it
                 "source": domain,
-                "category": None,
+                "category": _guess_main_category(title),
                 "publish_date": None,
                 "crawl_date": now,
                 "content_hash": compute_content_hash(u, title, None),
@@ -263,14 +313,12 @@ async def _crawl_domain(client: httpx.AsyncClient, domain: str) -> List[dict]:
             logger.warning("RSS parse failed for %s: %s", url, e)
             return None
 
-    # Try configured feeds
     for f in feeds:
         tried.add(f)
         items = await try_feed(f)
         if items:
             return items
 
-    # Try heuristic feeds
     for f in _feed_guessers(domain):
         if f in tried:
             continue
@@ -278,7 +326,6 @@ async def _crawl_domain(client: httpx.AsyncClient, domain: str) -> List[dict]:
         if items:
             return items
 
-    # Fallback to HTML
     logger.info("Falling back to HTML scraping for %s", domain)
     return await _html_fallback_scrape(client, domain)
 
@@ -305,18 +352,15 @@ async def crawl_sources(
                 logger.error("Domain crawl error: %s", e)
                 continue
 
-            # Process items in batches for efficiency
             batch_size = 50  # Process up to 50 items at a time
             for i in range(0, len(items), batch_size):
                 batch = items[i:i + batch_size]
                 
                 try:
-                    # Try using batch upsert if available
                     from app.db.crud import upsert_news_batch
                     ids = await upsert_news_batch(batch)
                     count += len(ids)
                 except Exception as e:
-                    # Fallback to individual upserts if batch upsert fails
                     logger.warning("Batch upsert failed, falling back to individual upserts: %s", e)
                     for item in batch:
                         try:

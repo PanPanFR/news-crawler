@@ -28,7 +28,6 @@ def normalize_url(base_url: str, href: Optional[str]) -> Optional[str]:
         return None
     try:
         full = urljoin(base_url, href)
-        # Drop fragments
         parsed = urlparse(full)
         full = parsed._replace(fragment="").geturl()
         return full
@@ -70,14 +69,12 @@ def to_utc(dt: datetime) -> datetime:
 
 
 def parse_feed_datetime(entry: dict) -> Optional[datetime]:
-    # feedparser uses 'published_parsed' or 'updated_parsed' (time.struct_time)
     tm = entry.get("published_parsed") or entry.get("updated_parsed") or None
     if tm:
         try:
             return datetime.fromtimestamp(mktime(tm), tz=timezone.utc)
         except Exception:
             pass
-    # fallback iso-like string
     for key in ("published", "updated", "date"):
         val = entry.get(key)
         if isinstance(val, str):
@@ -97,7 +94,6 @@ async def fetch_text(
     try:
         r = await client.get(url, timeout=timeout, headers={"User-Agent": USER_AGENT})
         r.raise_for_status()
-        # Prefer text with apparent encoding
         return r.text
     except Exception:
         return None

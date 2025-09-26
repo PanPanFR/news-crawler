@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
-# Load environment variables from .env if present (useful for local dev)
 load_dotenv()
 
 _supabase: Optional[Client] = None
@@ -43,7 +42,6 @@ async def close_client() -> None:
     """
     global _supabase
     if _supabase is not None:
-        # Supabase client doesn't need explicit closing
         _supabase = None
 
 
@@ -110,12 +108,12 @@ async def update(table: str, filters: Dict[str, Any], data: Dict[str, Any]) -> L
     Update records in a table with filters.
     """
     client = _get_supabase_client()
-    query = client.table(table)
-    
+    builder = client.table(table).update(data)
+
     for key, value in filters.items():
-        query = query.eq(key, value)
-    
-    response = query.update(data).execute()
+        builder = builder.eq(key, value)
+
+    response = builder.execute()
     return response.data
 
 
@@ -124,10 +122,10 @@ async def delete(table: str, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
     Delete records from a table with filters.
     """
     client = _get_supabase_client()
-    query = client.table(table)
-    
+    builder = client.table(table).delete()
+
     for key, value in filters.items():
-        query = query.eq(key, value)
-    
-    response = query.delete().execute()
+        builder = builder.eq(key, value)
+
+    response = builder.execute()
     return response.data
