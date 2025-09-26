@@ -8,24 +8,29 @@ on:
 jobs:
   keepalive-and-summarize:
     runs-on: ubuntu-latest
+    continue-on-error: true
     env:
-      HF_SPACE_BASE_URL: ${{ secrets.HF_SPACE_BASE_URL }}
+      HF_SPACE_BASE_URL: ${{ secrets.HF_SPACE_BASE_URL || vars.HF_SPACE_BASE_URL }}
     steps:
-      - name: Validate HF_SPACE_BASE_URL secret
+      - name: Validate HF_SPACE_BASE_URL
         run: |
           if [ -z "$HF_SPACE_BASE_URL" ]; then
-            echo "ERROR: HF_SPACE_BASE_URL secret not set. Configure it in GitHub Settings > Secrets and variables > Actions."; exit 1;
+            echo "::warning::HF_SPACE_BASE_URL not set. Configure in Repo Settings → Secrets and variables → Actions (Secret or Variable). Skipping keepalive.";
+          else
+            echo "Using HF_SPACE_BASE_URL=$HF_SPACE_BASE_URL";
           fi
-          echo "Using HF_SPACE_BASE_URL=$HF_SPACE_BASE_URL"
       - name: Ping health
+        if: ${{ env.HF_SPACE_BASE_URL != '' }}
         run: |
           set -e
-          curl -fsS "$HF_SPACE_BASE_URL/health" || exit 1
+          curl -fsS "$HF_SPACE_BASE_URL/health" || true
       - name: Ping root
+        if: ${{ env.HF_SPACE_BASE_URL != '' }}
         run: |
           set -e
           curl -fsS "$HF_SPACE_BASE_URL/" || true
       - name: Trigger summarizer batch
+        if: ${{ env.HF_SPACE_BASE_URL != '' }}
         run: |
           set -e
           curl -fsS -X POST "$HF_SPACE_BASE_URL/api/news/summarize?concurrency=1&batch=true" -H "Content-Type: application/json" || true
