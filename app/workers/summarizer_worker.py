@@ -41,11 +41,15 @@ class SummarizerWorker:
         self.max_concurrent = max_concurrent
         self.supabase = None
         self.redis_client = None
+        # Create per-run rate limiter (avoid cross-loop asyncio.Lock reuse)
+        self.rate_limiter: Optional[AsyncLLMRateLimiter] = None
 
     async def initialize(self):
         """Initialize database and Redis connections."""
         self.supabase = await get_supabase_client()
         self.redis_client = await get_redis_client()
+        # Initialize limiter within the current event loop
+        self.rate_limiter = AsyncLLMRateLimiter(min_interval=RATE_LIMIT_DELAY)
 
     async def get_next_task(self) -> Optional[Tuple[str, int]]:
         """
@@ -146,15 +150,19 @@ class SummarizerWorker:
                 return True
             
             logger.info(f"Summarizing content for news item {news_id} (attempt #{attempt})")
-            try:
-                RATE_LIMITER  # type: ignore[name-defined]
-            except NameError:
-                RATE_LIMITER = AsyncLLMRateLimiter(min_interval=RATE_LIMIT_DELAY)  # type: ignore[assignment]
-            await RATE_LIMITER.acquire()  # type: ignore[name-defined]
+            # Acquire per-run limiter tied to the current event loop
+            if not self.rate_limiter:
+                self.rate_limiter = AsyncLLMRateLimiter(min_interval=RATE_LIMIT_DELAY)
+            await self.rate_limiter.acquire()
             summary = await summarize_with_llm(content, title)
             
-            if not summary:
-                logger.error(f"Failed to generate summary for news item {news_id} (attempt #{attempt})")
+            # If summarization failed or produced placeholder, delete the row immediately
+            placeholder = "No content available for summarization"
+            if not summary or (isinstance(summary, str) and summary.strip().lower() == placeholder.lower()):
+                if not summary:
+                    logger.error(f"Failed to generate summary for news item {news_id} (attempt #{attempt})")
+                else:
+                    logger.warning(f"Summary is placeholder for news item {news_id}; deleting row")
                 await self.delete_news_item(news_id)
                 return True
             

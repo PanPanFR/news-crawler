@@ -186,3 +186,15 @@ async def delete_placeholder_summaries(placeholder: str = "No content available 
         filters={"summary": placeholder}
     )
     return len(deleted_items)
+async def delete_category_null() -> int:
+    """
+    Delete news rows where category is NULL.
+    Returns the count of deleted rows.
+    """
+    from .database import _get_supabase_client
+    client = _get_supabase_client()
+    builder = client.table("news").delete()
+    # Use IS filter to match NULL category
+    builder = builder.is_("category", None)
+    response = builder.execute()
+    return len(response.data or [])

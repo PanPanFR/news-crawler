@@ -1,0 +1,23 @@
+name: Keep HF Space awake and trigger summarizer
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  keepalive-and-summarize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health
+        run: |
+          set -e
+          curl -fsS "${{ secrets.HF_SPACE_BASE_URL }}/health" || exit 1
+      - name: Ping root
+        run: |
+          set -e
+          curl -fsS "${{ secrets.HF_SPACE_BASE_URL }}/" || true
+      - name: Trigger summarizer batch
+        run: |
+          set -e
+          curl -fsS -X POST "${{ secrets.HF_SPACE_BASE_URL }}/api/news/summarize?concurrency=1&batch=true" -H "Content-Type: application/json" || true

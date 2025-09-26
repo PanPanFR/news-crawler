@@ -25,6 +25,13 @@ async def run_crawl_job(max_concurrent: int = 3, domains: Optional[List[str]] = 
     
     logger.info("Running prioritizer after crawl...")
     await prioritize_news()
+    # Ensure any rows with NULL category are removed immediately after crawl
+    try:
+        from app.db.crud import delete_category_null  # type: ignore
+        deleted_null = await delete_category_null()
+        logger.info("Removed %d rows with NULL category after crawl", deleted_null)
+    except Exception as e:
+        logger.warning("Failed to delete rows with NULL category after crawl: %s", e)
     
     return count
 

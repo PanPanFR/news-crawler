@@ -355,6 +355,8 @@ async def crawl_sources(
             batch_size = 50  # Process up to 50 items at a time
             for i in range(0, len(items), batch_size):
                 batch = items[i:i + batch_size]
+                # Filter out items without a valid category (skip inserting those)
+                batch = [it for it in batch if (it.get("category") or "").strip()]
                 
                 try:
                     from app.db.crud import upsert_news_batch
@@ -363,6 +365,9 @@ async def crawl_sources(
                 except Exception as e:
                     logger.warning("Batch upsert failed, falling back to individual upserts: %s", e)
                     for item in batch:
+                        # Skip items without category when falling back to individual upserts
+                        if not (item.get("category") or "").strip():
+                            continue
                         try:
                             await upsert_news(item)
                             count += 1
