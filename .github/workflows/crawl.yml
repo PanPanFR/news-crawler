@@ -1,0 +1,33 @@
+name: Trigger HF Space crawl every 40 minutes and cleanup
+
+on:
+  schedule:
+    - cron: '*/40 * * * *'
+  workflow_dispatch:
+
+jobs:
+  crawl-and-clean:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health (keepalive)
+        run: |
+          set -e
+          curl -fsS "${{ secrets.HF_SPACE_BASE_URL }}/health" || exit 1
+      - name: Trigger crawl (default sources, concurrency=3)
+        run: |
+          set -e
+          curl -fsS -X POST "${{ secrets.HF_SPACE_BASE_URL }}/api/news/crawl?concurrency=3" -H "Content-Type: application/json"
+      - name: Trigger prioritizer (queue new items)
+        run: |
+          set -e
+          curl -fsS -X POST "${{ secrets.HF_SPACE_BASE_URL }}/api/news/prioritize" -H "Content-Type: application/json" || true
+      - name: Trigger summarizer batch (process queue)
+        run: |
+          set -e
+          curl -fsS -X POST "${{ secrets.HF_SPACE_BASE_URL }}/api/news/summarize?concurrency=1&batch=true" -H "Content-Type: application/json" || true
+      - name: Cleanup placeholder summaries (daily safety)
+        if: ${{ github.event_name == 'schedule' }}
+        run: |
+          set -e
+          # This will delete rows whose summary equals the placeholder string
+          curl -fsS -X POST "${{ secrets.HF_SPACE_BASE_URL }}/api/news/cleanup-placeholders" -H "Content-Type: application/json" || true
