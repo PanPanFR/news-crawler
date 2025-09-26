@@ -1,6 +1,6 @@
 # News Crawler with AI Summarization
 
-A scalable news crawler system with AI-powered summarization, optimized for deployment on Render with Redis priority queues and background processing.
+A scalable news crawler system with AI-powered summarization and Redis-backed priority queues and background processing. Deployable on Hugging Face Spaces, Docker, Railway, Render, or any platform that runs FastAPI + Python.
 
 ## 🚀 Features
 
@@ -13,7 +13,7 @@ A scalable news crawler system with AI-powered summarization, optimized for depl
 - **Automated Scheduling**: CLI tools for scheduled crawling and prioritization
 - **Duplicate Detection**: Content hash-based deduplication
 - **Rate Limiting**: Built-in rate limiting to comply with API quotas (2s delay)
-- **Render Optimized**: Configured for deployment with appropriate resource allocation
+- **Portable Deployment**: Works on Hugging Face Spaces, Docker, Railway, Render, or any FastAPI-capable platform
 - **Error Handling**: Robust error handling and logging
 - **Retry Mechanism**: Failed summarizations are retried with exponential backoff
 
@@ -123,6 +123,7 @@ The API will be available at:
 | `POST` | `/api/news/prioritize` | Trigger prioritization of unsummarized news |
 | `POST` | `/api/news/summarize` | Trigger summarization batch |
 | `POST` | `/api/news/cleanup` | Trigger data cleanup |
+| `POST` | `/api/news/cleanup-placeholders` | Delete rows with placeholder summaries |
 | `POST` | `/trigger-crawl` | Cron job endpoint to start crawling and prioritization |
 
 ### Query Parameters
@@ -210,62 +211,42 @@ python -m app.scheduler cleanup --days 30 --by-publish
 
 ## 🌐 Deployment
 
-### Render Deployment with Redis Cloud
+This project is platform-agnostic and can run anywhere FastAPI + Python is supported.
 
-The system is optimized for deployment on Render with two services (using external Redis Cloud):
+Supported environments:
+- Hugging Face Spaces (recommended for this repository). See [README_HUGGINGFACE.md](README_HUGGINGFACE.md) for step-by-step deployment.
+- Docker on any VM or cloud provider.
+- PaaS platforms such as Railway or Render.
+- Bare metal or on-prem servers.
 
-1. **Web Service Configuration**:
-   - Service type: Web Service
-   - Runtime: Python
-   - Build command: 
-     ```bash
-     python -m venv venv
-     source venv/bin/activate
-     pip install -r requirements.txt
-     ```
-   - Start command:
-     ```bash
-     source venv/bin/activate
-     uvicorn app.main:app --host 0.0.0.0 --port $PORT
-     ```
+Quick start (generic):
+```bash
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
 
-2. **Background Worker**:
-   - Service type: Worker
-   - Runtime: Python
-   - Same build command as Web Service
-   - Start command:
-     ```bash
-     source venv/bin/activate
-     python -m app.workers.summarizer_worker
-     ```
+Background worker (optional, for summarization queue):
+```bash
+python -m app.workers.summarizer_worker
+```
 
-3. **Redis Cloud Configuration** (instead of Render's Redis add-on):
-   - Host: `redis-12045.crce185.ap-seast-1-1.ec2.redns.redis-cloud.com`
-   - Port: `12045`
-   - Password: Your Redis Cloud password
-   - This configuration is used instead of Render's Redis Add-on
+Environment variables (common across platforms):
+- `SUPABASE_URL`: Supabase project URL
+- `SUPABASE_KEY`: Supabase anon key
+- `REDIS_HOST`: Redis host
+- `REDIS_PORT`: Redis port
+- `REDIS_PASSWORD`: Redis password
+- `LLM_API_KEY`: Groq/OpenAI/Anthropic API key
+- `LLM_SERVICE`: 'groq' (default), or 'openai' / 'anthropic'
+- `LLM_RATE_LIMIT_DELAY`: Delay between API requests (default: 2.0 seconds)
+- `MAX_RETRY_ATTEMPTS`: Max attempts to summarize news (default: 3)
+- `FAILED_QUEUE_TTL`: Time to live for failed queue items (default: 3600 seconds)
 
-4. **Environment Variables**:
-   - `SUPABASE_URL`: Your Supabase project URL
-   - `SUPABASE_KEY`: Your Supabase anon key
-   - `REDIS_HOST`: Your Redis Cloud host (e.g., redis-12045.crce185.ap-seast-1-1.ec2.redns.redis-cloud.com)
-   - `REDIS_PORT`: Your Redis Cloud port (e.g., 12045)
-   - `REDIS_PASSWORD`: Your Redis Cloud password
-   - `LLM_API_KEY`: Your Groq API key
-   - `LLM_SERVICE`: Set to 'groq' (default)
-   - `LLM_RATE_LIMIT_DELAY`: Delay between API requests (default: 2.0 seconds)
-   - `MAX_RETRY_ATTEMPTS`: Max attempts to summarize news (default: 3)
-   - `FAILED_QUEUE_TTL`: Time to live for failed queue items (default: 3600 seconds)
-
-### Render Cron Job
-
-The system uses a cron job to trigger crawling every 40 minutes:
-
-- **Schedule**: `*/40 * * * *` (every 40 minutes)
-- **Command**: `curl -X POST https://your-service-name.onrender.com/trigger-crawl`
-- **Retries**: 2
-
-This configuration ensures the system stays within API rate limits (30 requests/minute max, 14,400 requests/day max).
+Scheduling (optional):
+- Use any cron/scheduler available on your platform to trigger crawling:
+  ```bash
+  curl -X POST https://your-service-host/trigger-crawl
+  ```
 
 ## 📁 Project Structure
 
@@ -273,33 +254,31 @@ This configuration ensures the system stays within API rate limits (30 requests/
 /
 ├── app/
 │   ├── __init__.py
-│   ├── main.py              # FastAPI application entry point
-│   ├── startup.py           # Application startup configuration for Render
-│   ├── scheduler.py         # CLI scheduler for crawling and cleanup
+│   ├── main.py
+│   ├── startup.py
+│   ├── scheduler.py
 │   ├── api/
-│   │   └── routes.py        # API endpoints and request/response models
+│   │   └── routes.py
 │   ├── crawler/
-│   │   ├── spider.py        # Main crawling logic and RSS parsing
-│   │   └── utils.py         # Utility functions for crawling
+│   │   ├── spider.py
+│   │   └── utils.py
 │   ├── db/
-│   │   ├── database.py      # Database connection and client
-│   │   ├── models.py        # Pydantic models for data validation
-│   │   ├── crud.py          # Database operations (CRUD)
-│   │   └── redis_client.py  # Redis client for queue management
+│   │   ├── database.py
+│   │   ├── models.py
+│   │   ├── crud.py
+│   │   └── redis_client.py
 │   ├── utils/
-│   │   └── content_extractor.py  # Content extraction and LLM integration
+│   │   └── content_extractor.py
 │   └── workers/
-│       └── summarizer_worker.py  # Background worker for summarization
-├── .env                     # Environment variables (create this)
-├── render.yaml             # Render deployment configuration
-├── Dockerfile              # Docker configuration for containerized deployment
-├── requirements.txt        # Python dependencies
-├── backend_konteks.md      # Backend architecture documentation
-├── konteks2.md             # Frontend design documentation
-├── skema.md                # Database schema and SQL commands
-├── README.md               # This file
-├── test_new_architecture.py # Test for new architecture
-└── test_render_limits.py   # Test for Render deployment limits
+│       └── summarizer_worker.py
+├── app.py
+├── Dockerfile
+├── requirements.txt
+├── README.md
+├── README_HUGGINGFACE.md
+├── tools/
+│   └── remove_comments.py
+└── .env
 ```
 
 ## 📰 Supported News Sources
@@ -430,28 +409,28 @@ python -m app.scheduler crawl
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🚀 Quick Start for Deployment
+## 🚀 Quick Start
 
-### For Render Deployment:
-1. Fork this repository
-2. Create a new Web Service on Render from your GitHub repository
-3. Add the required environment variables in the Render dashboard
-4. The `render.yaml` file will automatically configure all three services (Web, Worker, Redis) and the Cron job
-
-### Required Environment Variables:
-- `SUPABASE_URL` - Your Supabase project URL
-- `SUPABASE_KEY` - Your Supabase anon key
-- `LLM_API_KEY` - Your LLM API key (Groq recommended)
-- `LLM_SERVICE` - Set to 'groq' (default)
+1. Clone or fork this repository.
+2. Create a `.env` file with required variables (Supabase, Redis, LLM).
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Start the API:
+   ```bash
+   uvicorn app.main:app --host 0.0.0.0 --port 8000
+   ```
+5. Optionally start the summarization worker:
+   ```bash
+   python -m app.workers.summarizer_worker
+   ```
+6. For Hugging Face Spaces deployment, follow [README_HUGGINGFACE.md](README_HUGGINGFACE.md).
 
 ## 🔗 Related Documentation
 
-- [`backend_konteks.md`](backend_konteks.md) - Backend architecture and system design
-- [`skema.md`](skema.md) - Database schema and SQL commands
-- [`konteks2.md`](konteks2.md) - Frontend design documentation
-- [`render.yaml`](render.yaml) - Render deployment configuration
-- [`SETUP_GUIDE.md`](SETUP_GUIDE.md) - Complete setup and deployment guide
+- [`README_HUGGINGFACE.md`](README_HUGGINGFACE.md) - Hugging Face Spaces deployment guide
 
 ---
 
-For more detailed configuration and deployment instructions, see `SETUP_GUIDE.md`.
+For detailed deployment instructions specific to Hugging Face Spaces, see [README_HUGGINGFACE.md](README_HUGGINGFACE.md).
