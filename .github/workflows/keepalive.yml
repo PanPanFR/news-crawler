@@ -8,16 +8,24 @@ on:
 jobs:
   keepalive-and-summarize:
     runs-on: ubuntu-latest
+    env:
+      HF_SPACE_BASE_URL: ${{ secrets.HF_SPACE_BASE_URL }}
     steps:
+      - name: Validate HF_SPACE_BASE_URL secret
+        run: |
+          if [ -z "$HF_SPACE_BASE_URL" ]; then
+            echo "ERROR: HF_SPACE_BASE_URL secret not set. Configure it in GitHub Settings > Secrets and variables > Actions."; exit 1;
+          fi
+          echo "Using HF_SPACE_BASE_URL=$HF_SPACE_BASE_URL"
       - name: Ping health
         run: |
           set -e
-          curl -fsS "${{ secrets.HF_SPACE_BASE_URL }}/health" || exit 1
+          curl -fsS "$HF_SPACE_BASE_URL/health" || exit 1
       - name: Ping root
         run: |
           set -e
-          curl -fsS "${{ secrets.HF_SPACE_BASE_URL }}/" || true
+          curl -fsS "$HF_SPACE_BASE_URL/" || true
       - name: Trigger summarizer batch
         run: |
           set -e
-          curl -fsS -X POST "${{ secrets.HF_SPACE_BASE_URL }}/api/news/summarize?concurrency=1&batch=true" -H "Content-Type: application/json" || true
+          curl -fsS -X POST "$HF_SPACE_BASE_URL/api/news/summarize?concurrency=1&batch=true" -H "Content-Type: application/json" || true
